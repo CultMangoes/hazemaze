@@ -1,50 +1,48 @@
 import os
+import random
 from pathlib import Path
 from typing import Union
 from abc import ABCMeta, abstractmethod
 
 import torch
-import torchvision.transforms as T
 from torch.utils.data import Dataset
-from torchvision.io import read_image
+from PIL import Image
 
 
-class GANDataset(Dataset, metaclass=ABCMeta):
-    @staticmethod
+class ImageDataset(Dataset, metaclass=ABCMeta):
     @abstractmethod
-    def get_data(DIR: Union[str, "Path"]) -> tuple[str]:
+    def get_data(self) -> tuple[str]:
         raise NotImplementedError
 
     @staticmethod
     def download(DIR: Union[str, "Path"]):
         raise NotImplementedError("This dataset does not support download")
 
-    @property
-    def img_size(self):
-        return self._img_size
-
     def __init__(
             self,
             DIR: Union[str, "Path"],
-            img_size: tuple[int, int],
             img_transform=None,
-            device=None,
-            download: bool = False
+            **kwargs
     ):
+        device = kwargs.pop("device", torch.device("cpu"))
+        download = kwargs.pop("download", False)
+        sub_sample = kwargs.pop("sub_sample", 1)
         if os.path.isdir(DIR) and len(os.listdir(DIR)): download = False
-        if download: self.download(DIR)
+        if download:
+            os.makedirs(DIR, exist_ok=True)
+            self.download(DIR)
         assert os.path.isdir(DIR), \
             f"Directory {DIR} does not exist"
-        assert len(img_size) == 2 and all(isinstance(i, int) for i in img_size), \
-            f"Invalid img_size={img_size}, must be tuple of 2 ints"
+        assert 0 < sub_sample <= 1, \
+            f"Value of sub_sample must be between 0 and 1, got {sub_sample}"
 
         self._DIR = Path(DIR)
-        self._img_size = img_size
         self._img_transform = img_transform
         self._device = device
 
-        self._data = tuple(self.get_data(self._DIR))
-        self._resizer = T.Resize(self._img_size[::-1], antialias=True)
+        data = list(self.get_data())
+        random.shuffle(data)
+        self._data = data[:int(len(data) * sub_sample)]
 
     def __len__(self):
         return len(self._data)
@@ -59,9 +57,8 @@ class GANDataset(Dataset, metaclass=ABCMeta):
             return self.collate_fn(self[idx] for idx in range(*item.indices(len(self))))
         elif isinstance(item, int):
             file = self._data[item]
-            img = read_image(str(file)) / 255
+            img = Image.open(file)
             if self._img_transform is not None: img = self._img_transform(img)
-            img = self._resizer(img)
             return {
                 "images": img.to(self._device)
             }
@@ -70,10 +67,8 @@ class GANDataset(Dataset, metaclass=ABCMeta):
 
     @staticmethod
     def collate_fn(batch) -> dict[str, "torch.Tensor"]:
-        images, = list(zip(*(b.values() for b in batch)))
-        images = torch.stack(images)
         return {
-            "images": images,
+            "images": torch.stack([b["images"] for b in batch], dim=0)
         }
 
     def to(self, device):
@@ -81,6 +76,25 @@ class GANDataset(Dataset, metaclass=ABCMeta):
         return self
 
 
+class DomainDataset(Dataset):
+    def __init__(self, *domains: "ImageDataset", device=None):
+        self._domains = domains
+        self.to(device)
+
+    def __len__(self):
+        return max(len(d) for d in self._domains)
+
+    def __getitem__(self, item):
+        return {
+            f"images_{i}": d[item % len(d)]["images"] for i, d in enumerate(self._domains)
+        }
+
+    def to(self, device):
+        for d in self._domains: d.to(device)
+        return self
+
+
 __all__ = [
-    "GANDataset"
+    "ImageDataset",
+    "DomainDataset"
 ]

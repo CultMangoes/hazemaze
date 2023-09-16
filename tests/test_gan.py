@@ -1,32 +1,49 @@
-import torch
-import torchvision.transforms as T
 from torch import optim
 
-from gan import GANet, train
-from datasets import CelebADataset
+from datasets import ITSDataset, DomainDataset
+from gan.utils import Config
+from gan.generator import Generator
+from gan.discriminator import Discriminator
+from gan.trainer import train, get_cycle_gan_trainer
+
+
+config = Config(
+    root="../../commons",
+    model_name="HazeGan",
+    dataset_name="its",
+    epochs=1, batch_size=8,
+    image_shape=(3, 64, 64),
+)
+config.residuals = 4
+config.blocks = [64, 128, 256, 512]
+config.cycle_lambda = 10
+config.identity_lambda = 0.5
 
 if __name__ == '__main__':
-    img_shape = 3, 256, 256
-    latent_dim = 128
-    lr = 3e-4
-    betas = 0.5, 0.999
-    fixed_image = torch.rand(1, *img_shape)
-    fixed_noise = torch.randn(1, latent_dim)
+    ds = DomainDataset(
+        ITSDataset(config.dataset_path, SET="hazy", download=True, img_transform=config.transforms, sub_sample=0.5),
+        ITSDataset(config.dataset_path, SET="clear", download=True, img_transform=config.transforms, sub_sample=1)
+    ).to(config.device)
 
-    img_transform = T.Compose([
-        T.Normalize((0.5,) * 3, (0.5,) * 3),
-    ])
-    ds1 = CelebADataset("../../commons/datasets/CelebA", img_shape[1:], img_transform=img_transform)
+    gen_A = Generator(config.image_shape[0], config.latent_dim, config.residuals)
+    disc_A = Discriminator(config.image_shape[0], config.blocks)
+    gen_B = Generator(config.image_shape[0], config.latent_dim, config.residuals)
+    disc_B = Discriminator(config.image_shape[0], config.blocks)
+    optimizer_G = optim.Adam(
+        list(gen_A.parameters()) + list(gen_B.parameters()),
+        lr=config.lr,
+        betas=(config.beta_1, config.beta_2)
+    )
+    optimizer_D = optim.Adam(
+        list(disc_A.parameters()) + list(disc_B.parameters()),
+        lr=config.lr,
+        betas=(config.beta_1, config.beta_2)
+    )
 
-    blocks = [img_shape[0], 16, 32, 64, 128, 256, 512]
-    model = GANet(blocks, latent_dim=latent_dim)
-    optimizer1 = optim.Adam(model.discriminator.parameters(), lr=lr, betas=betas)
-    optimizer2 = optim.Adam(model.generator.parameters(), lr=lr, betas=betas)
-
-    model.discriminator(fixed_image), model.generator(fixed_noise)
+    trainer = get_cycle_gan_trainer(gen_A, gen_B, disc_A, disc_B, optimizer_G, optimizer_D,
+                                    lambda_cycle=config.cycle_lambda, lambda_identity=config.identity_lambda)
 
     train(
-        model, ds1, optimizer1, optimizer2,
-        ne=10, bs=32,
-        collate_fn=ds1.collate_fn
+        trainer, ds,
+        ne=config.epochs, bs=config.batch_size,
     )
