@@ -51,6 +51,7 @@ class Generator(nn.Module):
 
         self.head = ConvBlock(inp_features, features, nn.ReLU(),
                               norm=2, kernel_size=7, stride=1, padding=3)
+        # todo: skip connection from down_blocks to up_blocks
         self.down_blocks = nn.Sequential(
             *[ConvBlock(features * 2 ** i, features * 2 ** (i + 1), nn.ReLU(),
                         norm=2, kernel_size=3, stride=2, padding=1) for i in range(num_down)]

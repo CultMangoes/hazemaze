@@ -56,7 +56,7 @@ class ImageDataset(Dataset, metaclass=ABCMeta):
         if isinstance(item, slice):
             return self.collate_fn(self[idx] for idx in range(*item.indices(len(self))))
         elif isinstance(item, int):
-            file = self._data[item]
+            file = self._data[item % len(self)]
             img = Image.open(file)
             if self._img_transform is not None: img = self._img_transform(img)
             return {
@@ -86,7 +86,7 @@ class DomainDataset(Dataset):
 
     def __getitem__(self, item):
         return {
-            f"images_{i}": d[item % len(d)]["images"] for i, d in enumerate(self._domains)
+            f"images_{i}": d[item]["images"] for i, d in enumerate(self._domains)
         }
 
     def to(self, device):

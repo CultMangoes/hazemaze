@@ -1,9 +1,21 @@
 import torch
+from torch import nn, optim
 from torch.utils.data import DataLoader, Dataset
+from torch.utils.tensorboard import SummaryWriter
 from tqdm.auto import tqdm
 from tqdm import tqdm as TQDM
 
 BAR_FORMAT = "{desc} {n_fmt}/{total_fmt}|{bar}|{percentage:3.0f}% [{elapsed}<{remaining}, {rate_fmt}{postfix}]"
+
+
+class PerceptualLoss:
+    def __init__(self, model: "nn.Module", loss_fn=None):
+        if loss_fn is None: loss_fn = nn.L1Loss()
+        self.model = model.eval().requires_grad_(False)
+        self.loss = loss_fn
+
+    def __call__(self, x, y):
+        return self.loss(self.model(x), self.model(y))
 
 
 def train(
@@ -17,26 +29,29 @@ def train(
         loss_sum = 0
         prog: "TQDM" = tqdm(dl, desc=f"Epoch: 0/{ne} | Batch", postfix={"loss": "?"}, bar_format=BAR_FORMAT)
         for batch, DATA in enumerate(prog):
-            loss = trainer(DATA)
+            loss = trainer(DATA, epoch * len(dl) + batch)
             loss_sum += loss.item()
             prog.set_description(f"Epoch: {epoch + 1}/{ne} | Batch")
             prog.set_postfix(loss=f"{loss_sum / (batch + 1):.4f}")
 
 
 def get_cycle_gan_trainer(
-        generator_A,
-        generator_B,
-        discriminator_A,
-        discriminator_B,
-        optimizer_G,
-        optimizer_D,
-        lambda_cycle: float = 10,
-        lambda_identity: float = 0.5
+        generator_A: "nn.Module", generator_B: "nn.Module",
+        discriminator_A: "nn.Module", discriminator_B: "nn.Module",
+        optimizer_G: "optim.Optimizer", optimizer_D: "optim.Optimizer",
+        perceptual_loss=None, lambda_cycle: float = 10, lambda_identity: float = 0.5,
+        writer: "SummaryWriter" = None, period: int = 1,
+        fixed_A: "torch.Tensor" = None, fixed_B: "torch.Tensor" = None,
 ):
-    L1 = torch.nn.L1Loss()
-    MSE = torch.nn.MSELoss()
+    assert writer is None or (fixed_A is not None and fixed_B is not None), \
+        "parameters `writer`, `fixed_A` and `fixed_B` are mutually inclusive"
+    L1 = nn.L1Loss()
+    MSE = nn.MSELoss()
+    if writer is not None:
+        writer.add_images("images/real_A", fixed_A, 0)
+        writer.add_images("images/real_B", fixed_B, 0)
 
-    def trainer(DATA):
+    def trainer(DATA, step):
         real_A, real_B = DATA["images_0"], DATA["images_1"]
         fake_A, fake_B = generator_A(real_B), generator_B(real_A)
         recon_A, recon_B = generator_A(fake_B), generator_B(fake_A)
@@ -70,6 +85,14 @@ def get_cycle_gan_trainer(
         # Total Loss
         loss_total = loss_D + loss_G + lambda_cycle * loss_cycle + lambda_identity * loss_identity
 
+        if perceptual_loss is not None:
+            loss_perceptual_A = perceptual_loss(fake_A, real_A)
+            loss_perceptual_B = perceptual_loss(fake_B, real_B)
+            loss_perceptual = (loss_perceptual_A + loss_perceptual_B) / 2
+            loss_total += loss_perceptual
+        else:
+            loss_perceptual = torch.tensor(torch.nan)
+
         # Backprop
         optimizer_G.zero_grad()
         optimizer_D.zero_grad()
@@ -77,12 +100,31 @@ def get_cycle_gan_trainer(
         optimizer_G.step()
         optimizer_D.step()
 
+        if writer is not None and step % period == 0:
+            writer.add_scalar("loss/discriminator", loss_D.item(), step)
+            writer.add_scalar("loss/generator", loss_G.item(), step)
+            writer.add_scalar("loss/cycle", loss_cycle.item(), step)
+            writer.add_scalar("loss/identity", loss_identity.item(), step)
+            writer.add_scalar("loss/perceptual", loss_perceptual.item(), step)
+            writer.add_scalar("loss/total", loss_total.item(), step)
+
+            with torch.inference_mode():
+                writer.add_images("images/fakeA", fake_A := generator_A(fixed_B), step)
+                writer.add_images("images/fakeB", fake_B := generator_B(fixed_A), step)
+                writer.add_images("images/reconA", generator_A(fake_B), step)
+                writer.add_images("images/reconB", generator_B(fake_A), step)
+                writer.add_images("images/sameA", generator_A(fixed_A), step)
+                writer.add_images("images/sameB", generator_B(fixed_B), step)
+
+            writer.flush()
+
         return loss_total
 
     return trainer
 
 
 __all__ = [
+    "PerceptualLoss",
     "train",
     "get_cycle_gan_trainer"
 ]
