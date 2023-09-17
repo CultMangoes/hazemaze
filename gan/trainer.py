@@ -2,6 +2,7 @@ import torch
 from torch import nn, optim
 from torch.utils.data import DataLoader, Dataset
 from torch.utils.tensorboard import SummaryWriter
+from torchvision.utils import make_grid
 from tqdm.auto import tqdm
 from tqdm import tqdm as TQDM
 
@@ -48,8 +49,12 @@ def get_cycle_gan_trainer(
     L1 = nn.L1Loss()
     MSE = nn.MSELoss()
     if writer is not None:
-        writer.add_images("images/real_A", fixed_A, 0)
-        writer.add_images("images/real_B", fixed_B, 0)
+        grid_real_A = make_grid(fixed_A, nrow=1, normalize=True)
+        grid_real_B = make_grid(fixed_B, nrow=1, normalize=True)
+        writer.add_graph(generator_A, fixed_B)
+        writer.add_graph(generator_B, fixed_A)
+        writer.add_graph(discriminator_A, fixed_A)
+        writer.add_graph(discriminator_B, fixed_B)
 
     def trainer(DATA, step):
         real_A, real_B = DATA["images_0"], DATA["images_1"]
@@ -109,12 +114,16 @@ def get_cycle_gan_trainer(
             writer.add_scalar("loss/total", loss_total.item(), step)
 
             with torch.inference_mode():
-                writer.add_images("images/fakeA", fake_A := generator_A(fixed_B), step)
-                writer.add_images("images/fakeB", fake_B := generator_B(fixed_A), step)
-                writer.add_images("images/reconA", generator_A(fake_B), step)
-                writer.add_images("images/reconB", generator_B(fake_A), step)
-                writer.add_images("images/sameA", generator_A(fixed_A), step)
-                writer.add_images("images/sameB", generator_B(fixed_B), step)
+                grid_fake_A = make_grid(fake_A := generator_A(fixed_B), nrow=1, normalize=True)
+                grid_fake_B = make_grid(fake_B := generator_B(fixed_A), nrow=1, normalize=True)
+                grid_recon_A = make_grid(generator_A(fake_B), nrow=1, normalize=True)
+                grid_recon_B = make_grid(generator_B(fake_A), nrow=1, normalize=True)
+                grid_same_A = make_grid(generator_A(fixed_A), nrow=1, normalize=True)
+                grid_same_B = make_grid(generator_B(fixed_B), nrow=1, normalize=True)
+                writer.add_images("images/domainA",
+                                  torch.stack([grid_real_A, grid_fake_B, grid_recon_A, grid_same_A]), step)
+                writer.add_images("images/domainB",
+                                  torch.stack([grid_real_B, grid_fake_A, grid_recon_B, grid_same_B]), step)
 
             writer.flush()
 
