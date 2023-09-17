@@ -65,6 +65,7 @@ def display_images(images):
     for i, image in enumerate(images):
         ax = fig.add_subplot(rows, cols, i + 1)
         ax.imshow(image)
+        ax.axis("off")
     pyplot.show()
 
 

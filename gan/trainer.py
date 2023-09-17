@@ -51,10 +51,7 @@ def get_cycle_gan_trainer(
     if writer is not None:
         grid_real_A = make_grid(fixed_A, nrow=1, normalize=True)
         grid_real_B = make_grid(fixed_B, nrow=1, normalize=True)
-        writer.add_graph(generator_A, fixed_B)
-        writer.add_graph(generator_B, fixed_A)
-        writer.add_graph(discriminator_A, fixed_A)
-        writer.add_graph(discriminator_B, fixed_B)
+        # writer.add_graph(..., ...)
 
     def trainer(DATA, step):
         real_A, real_B = DATA["images_0"], DATA["images_1"]
@@ -124,8 +121,6 @@ def get_cycle_gan_trainer(
                                   torch.stack([grid_real_A, grid_fake_B, grid_recon_A, grid_same_A]), step)
                 writer.add_images("images/domainB",
                                   torch.stack([grid_real_B, grid_fake_A, grid_recon_B, grid_same_B]), step)
-
-            writer.flush()
 
         return loss_total
 
