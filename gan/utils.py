@@ -39,7 +39,7 @@ class Config:
 
     def __post_init__(self):
         os.makedirs(self.checkpoint_path, exist_ok=True)
-        self.writer = SummaryWriter(self.log_path, filename_suffix=datetime.now().strftime('%Y%m%d-%H%M%S'))
+        self.writer = SummaryWriter(self.log_path)
         self.mean: tuple[float, ...] = (0.5,) * self.image_shape[0]
         self.std: tuple[float, ...] = (0.5,) * self.image_shape[0]
         self.transforms: T.Compose = T.Compose([

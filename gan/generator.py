@@ -46,26 +46,26 @@ class ResidualBlock(nn.Sequential):
 
 class Generator(nn.Module):
     def __init__(self, inp_features: int, features: int, residuals: int, **kwargs):
+        out_features = kwargs.pop("out_features", inp_features)
         super().__init__()
-        len_coder = kwargs.pop("len_coder", 2)
+        coder_len = kwargs.pop("coder_len", 2)
 
         self.head = ConvBlock(inp_features, features, nn.ReLU(),
                               norm=2, kernel_size=7, stride=1, padding=3)
-        # todo: skip connection from down_blocks to up_blocks
         self.down_blocks = nn.ModuleList([
             ConvBlock(features * 2 ** i, features * 2 ** (i + 1), nn.ReLU(),
-                      norm=2, kernel_size=3, stride=2, padding=1) for i in range(len_coder)
+                      norm=2, kernel_size=3, stride=2, padding=1) for i in range(coder_len)
         ])
         self.residual_blocks = nn.Sequential(
             *[ResidualBlock(features * 4,
                             norm=2, kernel_size=3, stride=1, padding=1) for _ in range(residuals)]
         )
-        self.up_blocks = nn.ModuleList([
+        self.up_blocks = nn.ModuleList(reversed([
             ConvBlock(features * 2 ** (i + 1) * 2, features * 2 ** i, nn.ReLU(),
                       norm=2, down=False, kernel_size=3, stride=2, padding=1, output_padding=1)
-            for i in range(len_coder - 1, -1, -1)
-        ])
-        self.tail = ConvBlock(features, inp_features, nn.Tanh(),
+            for i in range(coder_len)
+        ]))
+        self.tail = ConvBlock(features, out_features, nn.Tanh(),
                               norm=0, kernel_size=7, stride=1, padding=3)
 
     def forward(self, x):

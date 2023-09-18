@@ -10,13 +10,13 @@ BAR_FORMAT = "{desc} {n_fmt}/{total_fmt}|{bar}|{percentage:3.0f}% [{elapsed}<{re
 
 
 class PerceptualLoss:
-    def __init__(self, model: "nn.Module", loss_fn=None):
-        if loss_fn is None: loss_fn = nn.L1Loss()
+    def __init__(self, model: "nn.Module", criterion=None):
+        if criterion is None: criterion = nn.L1Loss()
         self.model = model.eval().requires_grad_(False)
-        self.loss = loss_fn
+        self.criterion = criterion
 
     def __call__(self, x, y):
-        return self.loss(self.model(x), self.model(y))
+        return self.criterion(self.model(x), self.model(y))
 
 
 def train(
@@ -37,90 +37,93 @@ def train(
 
 
 def get_cycle_gan_trainer(
-        generator_A: "nn.Module", generator_B: "nn.Module",
-        discriminator_A: "nn.Module", discriminator_B: "nn.Module",
-        optimizer_G: "optim.Optimizer", optimizer_D: "optim.Optimizer",
+        generatorA: "nn.Module", generatorB: "nn.Module",
+        discriminatorA: "nn.Module", discriminatorB: "nn.Module",
+        optimizerG: "optim.Optimizer", optimizerD: "optim.Optimizer",
         perceptual_loss=None, lambda_cycle: float = 10, lambda_identity: float = 0.5,
         writer: "SummaryWriter" = None, period: int = 1,
-        fixed_A: "torch.Tensor" = None, fixed_B: "torch.Tensor" = None,
+        fixedA: "torch.Tensor" = None, fixedB: "torch.Tensor" = None,
 ):
-    assert writer is None or (fixed_A is not None and fixed_B is not None), \
-        "parameters `writer`, `fixed_A` and `fixed_B` are mutually inclusive"
+    assert writer is None or (fixedA is not None and fixedB is not None), \
+        "parameters `writer`, `fixedA` and `fixedB` are mutually inclusive"
     L1 = nn.L1Loss()
     MSE = nn.MSELoss()
     if writer is not None:
-        grid_real_A = make_grid(fixed_A, nrow=1, normalize=True)
-        grid_real_B = make_grid(fixed_B, nrow=1, normalize=True)
+        grid_realA = make_grid(fixedA, nrow=1, normalize=True)
+        grid_realB = make_grid(fixedB, nrow=1, normalize=True)
         # writer.add_graph(..., ...)
 
     def trainer(DATA, step):
-        real_A, real_B = DATA["images_0"], DATA["images_1"]
-        fake_A, fake_B = generator_A(real_B), generator_B(real_A)
-        recon_A, recon_B = generator_A(fake_B), generator_B(fake_A)
-        same_A, same_B = generator_A(real_A), generator_B(real_B)
-        pred_real_A, pred_real_B = discriminator_A(real_A), discriminator_B(real_B)
-        pred_fake_A_true, pred_fake_B_true = discriminator_A(fake_A.detach()), discriminator_B(fake_B.detach())
-        pred_fake_A_false, pred_fake_B_false = discriminator_A(fake_A), discriminator_B(fake_B)
+        realA, realB = DATA["images_0"], DATA["images_1"]
+        fakeA, fakeB = generatorA(realB), generatorB(realA)
+        backA, backB = generatorA(fakeB), generatorB(fakeA)
+        sameA, sameB = generatorA(realA), generatorB(realB)
+        pred_realA, pred_realB = discriminatorA(realA), discriminatorB(realB)
+        pred_fakeA_true, pred_fakeB_true = discriminatorA(fakeA.detach()), discriminatorB(fakeB.detach())
+        pred_fakeA_false, pred_fakeB_false = discriminatorA(fakeA), discriminatorB(fakeB)
 
-        # Discriminator Loss
-        loss_D_A = (MSE(pred_real_A, torch.ones_like(pred_real_A)) +
-                    MSE(pred_fake_A_true, torch.zeros_like(pred_fake_A_true)))
-        loss_D_B = (MSE(pred_real_B, torch.ones_like(pred_real_B)) +
-                    MSE(pred_fake_A_true, torch.zeros_like(pred_fake_A_true)))
-        loss_D = (loss_D_A + loss_D_B) / 2
-
-        # Generator Loss
-        loss_G_A = MSE(pred_fake_A_false, torch.ones_like(pred_fake_A_false))
-        loss_G_B = MSE(pred_fake_B_false, torch.ones_like(pred_fake_B_false))
-        loss_G = (loss_G_A + loss_G_B) / 2
-
-        # Cycle Loss
-        loss_cycle_A = L1(recon_A, real_A)
-        loss_cycle_B = L1(recon_B, real_B)
-        loss_cycle = (loss_cycle_A + loss_cycle_B) / 2
-
-        # Identity Loss
-        loss_identity_A = L1(same_A, real_A)
-        loss_identity_B = L1(same_B, real_B)
-        loss_identity = (loss_identity_A + loss_identity_B) / 2
-
+        # ===Discriminator Loss===
+        # Adversarial Loss
+        loss_adversarialDA = (MSE(pred_realA, torch.ones_like(pred_realA)) +
+                              MSE(pred_fakeA_true, torch.zeros_like(pred_fakeA_true)))
+        loss_adversarialDB = (MSE(pred_realB, torch.ones_like(pred_realB)) +
+                              MSE(pred_fakeA_true, torch.zeros_like(pred_fakeA_true)))
+        loss_adversarialD = (loss_adversarialDA + loss_adversarialDB) / 2
         # Total Loss
-        loss_total = loss_D + loss_G + lambda_cycle * loss_cycle + lambda_identity * loss_identity
+        lossD = loss_adversarialD
+        # backprop
+        optimizerD.zero_grad()
+        lossD.backward()
+        optimizerD.step()
+        # ---End Discriminator Loss---
 
+        # ===Generator Loss===
+        # Adversarial Loss
+        loss_adversarialGA = MSE(pred_fakeA_false, torch.ones_like(pred_fakeA_false))
+        loss_adversarialGB = MSE(pred_fakeB_false, torch.ones_like(pred_fakeB_false))
+        loss_adversarialG = (loss_adversarialGA + loss_adversarialGB) / 2
+        # Cycle Loss
+        loss_cycleA = L1(backA, realA)
+        loss_cycleB = L1(backB, realB)
+        loss_cycle = (loss_cycleA + loss_cycleB) / 2
+        # Identity Loss
+        loss_identityA = L1(sameA, realA)
+        loss_identityB = L1(sameB, realB)
+        loss_identity = (loss_identityA + loss_identityB) / 2
+        # Perceptual Loss
         if perceptual_loss is not None:
-            loss_perceptual_A = perceptual_loss(fake_A, real_A)
-            loss_perceptual_B = perceptual_loss(fake_B, real_B)
-            loss_perceptual = (loss_perceptual_A + loss_perceptual_B) / 2
-            loss_total += loss_perceptual
+            loss_perceptualA = perceptual_loss(fakeA, realA)
+            loss_perceptualB = perceptual_loss(fakeB, realB)
+            loss_perceptual = (loss_perceptualA + loss_perceptualB) / 2
         else:
-            loss_perceptual = torch.tensor(torch.nan)
+            loss_perceptual = torch.tensor(0)
+        # Total Loss
+        lossG = (loss_adversarialG + lambda_cycle * loss_cycle + lambda_identity * loss_identity)
+        # backprop
+        optimizerG.zero_grad()
+        lossG.backward()
+        optimizerG.step()
+        # ---End Generator Loss---
 
-        # Backprop
-        optimizer_G.zero_grad()
-        optimizer_D.zero_grad()
-        loss_total.backward()
-        optimizer_G.step()
-        optimizer_D.step()
-
+        loss_total = lossD + lossG
         if writer is not None and step % period == 0:
-            writer.add_scalar("loss/discriminator", loss_D.item(), step)
-            writer.add_scalar("loss/generator", loss_G.item(), step)
+            writer.add_scalar("loss/adversarial_discriminator", loss_adversarialD.item(), step)
+            writer.add_scalar("loss/adversarial_generator", loss_adversarialG.item(), step)
             writer.add_scalar("loss/cycle", loss_cycle.item(), step)
             writer.add_scalar("loss/identity", loss_identity.item(), step)
             writer.add_scalar("loss/perceptual", loss_perceptual.item(), step)
             writer.add_scalar("loss/total", loss_total.item(), step)
-
             with torch.inference_mode():
-                grid_fake_A = make_grid(fake_A := generator_A(fixed_B), nrow=1, normalize=True)
-                grid_fake_B = make_grid(fake_B := generator_B(fixed_A), nrow=1, normalize=True)
-                grid_recon_A = make_grid(generator_A(fake_B), nrow=1, normalize=True)
-                grid_recon_B = make_grid(generator_B(fake_A), nrow=1, normalize=True)
-                grid_same_A = make_grid(generator_A(fixed_A), nrow=1, normalize=True)
-                grid_same_B = make_grid(generator_B(fixed_B), nrow=1, normalize=True)
+                grid_fakeA = make_grid(fakeA := generatorA(fixedB), nrow=1, normalize=True)
+                grid_fakeB = make_grid(fakeB := generatorB(fixedA), nrow=1, normalize=True)
+                grid_backA = make_grid(generatorA(fakeB), nrow=1, normalize=True)
+                grid_backB = make_grid(generatorB(fakeA), nrow=1, normalize=True)
+                grid_sameA = make_grid(generatorA(fixedA), nrow=1, normalize=True)
+                grid_sameB = make_grid(generatorB(fixedB), nrow=1, normalize=True)
                 writer.add_images("images/domainA",
-                                  torch.stack([grid_real_A, grid_fake_B, grid_recon_A, grid_same_A]), step)
+                                  torch.stack([grid_realA, grid_fakeB, grid_backA, grid_sameA]), step)
                 writer.add_images("images/domainB",
-                                  torch.stack([grid_real_B, grid_fake_A, grid_recon_B, grid_same_B]), step)
+                                  torch.stack([grid_realB, grid_fakeA, grid_backB, grid_sameB]), step)
 
         return loss_total
 

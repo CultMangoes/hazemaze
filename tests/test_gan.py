@@ -48,7 +48,7 @@ if __name__ == '__main__':
     trainer = get_cycle_gan_trainer(gen_A, gen_B, disc_A, disc_B, optimizer_G, optimizer_D,
                                     lambda_cycle=config.lambdas[0], lambda_identity=config.lambdas[1],
                                     perceptual_loss=perceptual_loss, writer=config.writer,
-                                    fixed_A=fixed_A, fixed_B=fixed_B, period=1)
+                                    fixedA=fixed_A, fixedB=fixed_B, period=1)
 
     train(
         trainer, ds,
