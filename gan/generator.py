@@ -1,5 +1,6 @@
 from typing import Literal
 
+import torch
 from torch import nn
 
 
@@ -46,32 +47,36 @@ class ResidualBlock(nn.Sequential):
 class Generator(nn.Module):
     def __init__(self, inp_features: int, features: int, residuals: int, **kwargs):
         super().__init__()
-        num_down = kwargs.pop("num_down", 2)
-        num_up = kwargs.pop("num_up", 2)
+        len_coder = kwargs.pop("len_coder", 2)
 
         self.head = ConvBlock(inp_features, features, nn.ReLU(),
                               norm=2, kernel_size=7, stride=1, padding=3)
         # todo: skip connection from down_blocks to up_blocks
-        self.down_blocks = nn.Sequential(
-            *[ConvBlock(features * 2 ** i, features * 2 ** (i + 1), nn.ReLU(),
-                        norm=2, kernel_size=3, stride=2, padding=1) for i in range(num_down)]
-        )
+        self.down_blocks = nn.ModuleList([
+            ConvBlock(features * 2 ** i, features * 2 ** (i + 1), nn.ReLU(),
+                      norm=2, kernel_size=3, stride=2, padding=1) for i in range(len_coder)
+        ])
         self.residual_blocks = nn.Sequential(
             *[ResidualBlock(features * 4,
                             norm=2, kernel_size=3, stride=1, padding=1) for _ in range(residuals)]
         )
-        self.up_blocks = nn.Sequential(
-            *[ConvBlock(features * 2 ** (num_down - i), features * 2 ** (num_down - i - 1), nn.ReLU(),
-                        norm=2, down=False, kernel_size=3, stride=2, padding=1, output_padding=1) for i in range(num_up)]
-        )
+        self.up_blocks = nn.ModuleList([
+            ConvBlock(features * 2 ** (i + 1) * 2, features * 2 ** i, nn.ReLU(),
+                      norm=2, down=False, kernel_size=3, stride=2, padding=1, output_padding=1)
+            for i in range(len_coder - 1, -1, -1)
+        ])
         self.tail = ConvBlock(features, inp_features, nn.Tanh(),
                               norm=0, kernel_size=7, stride=1, padding=3)
 
     def forward(self, x):
         x = self.head(x)
-        x = self.down_blocks(x)
+        skip_connections = []
+        for down_block in self.down_blocks:
+            x = down_block(x)
+            skip_connections.append(x)
         x = self.residual_blocks(x)
-        x = self.up_blocks(x)
+        for skip_connection, up_block in zip(reversed(skip_connections), self.up_blocks):
+            x = up_block(torch.cat([x, skip_connection], dim=1))
         x = self.tail(x)
         return x
 

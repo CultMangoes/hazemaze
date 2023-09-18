@@ -29,15 +29,6 @@ class Config:
     alphas: tuple[float, ...] = None
     lambdas: tuple[float, ...] = None
 
-    mean: tuple[float, ...] = (0.5,) * image_shape[0]
-    std: tuple[float, ...] = (0.5,) * image_shape[0]
-    transforms: T.Compose = T.Compose([
-        T.Resize(image_shape[1:][::-1]),
-        T.ToTensor(),
-        T.Normalize(mean, std)
-    ])
-    denormalize: T.Normalize = T.Normalize(-torch.tensor(mean) / torch.tensor(std), 1 / torch.tensor(std))
-
     @property
     def checkpoint_path(self):
         return f"{self.model_dir}/{self.model_name}/{self.model_version}/"
@@ -49,6 +40,14 @@ class Config:
     def __post_init__(self):
         os.makedirs(self.checkpoint_path, exist_ok=True)
         self.writer = SummaryWriter(self.log_path, filename_suffix=datetime.now().strftime('%Y%m%d-%H%M%S'))
+        self.mean: tuple[float, ...] = (0.5,) * self.image_shape[0]
+        self.std: tuple[float, ...] = (0.5,) * self.image_shape[0]
+        self.transforms: T.Compose = T.Compose([
+            T.Resize(self.image_shape[1:][::-1]),
+            T.ToTensor(),
+            T.Normalize(self.mean, self.std)
+        ])
+        self.denormalize = T.Normalize(-torch.tensor(self.mean) / torch.tensor(self.std), 1 / torch.tensor(self.std))
 
 
 @dataclass
@@ -89,7 +88,7 @@ def load_checkpoint(
         models: dict[str, "nn.Module"],
         optimizers: dict[str, "optim.Optimizer"],
 ) -> dict:
-    checkpoint = torch.load(path)
+    checkpoint = torch.load(path, map_location=torch.device('cpu'))
     for k, v in models.items():
         v.load_state_dict(checkpoint[f"model_{k}_state_dict"])
     for k, v in optimizers.items():
