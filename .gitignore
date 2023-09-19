@@ -154,4 +154,6 @@ dmypy.json
 cython_debug/
 
 # custom
-datasets
+datasets/
+logs/
+models/

@@ -60,7 +60,6 @@ def get_cycle_gan_trainer(
         sameA, sameB = generatorA(realA), generatorB(realB)
         pred_realA, pred_realB = discriminatorA(realA), discriminatorB(realB)
         pred_fakeA_true, pred_fakeB_true = discriminatorA(fakeA.detach()), discriminatorB(fakeB.detach())
-        pred_fakeA_false, pred_fakeB_false = discriminatorA(fakeA), discriminatorB(fakeB)
 
         # ===Discriminator Loss===
         # Adversarial Loss
@@ -77,6 +76,7 @@ def get_cycle_gan_trainer(
         optimizerD.step()
         # ---End Discriminator Loss---
 
+        pred_fakeA_false, pred_fakeB_false = discriminatorA(fakeA), discriminatorB(fakeB)
         # ===Generator Loss===
         # Adversarial Loss
         loss_adversarialGA = MSE(pred_fakeA_false, torch.ones_like(pred_fakeA_false))

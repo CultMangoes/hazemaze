@@ -14,9 +14,21 @@ class ImageDataset(Dataset, metaclass=ABCMeta):
     def get_data(self) -> tuple[str]:
         raise NotImplementedError
 
-    @staticmethod
-    def download(DIR: Union[str, "Path"]):
+    @classmethod
+    @abstractmethod
+    def download(cls, DIR: Union[str, "Path"]):
         raise NotImplementedError("This dataset does not support download")
+
+    @staticmethod
+    def kaggle_download(DIR: Union[str, "Path"], dataset: str):
+        user = input("Enter your kaggle username: ")
+        token = input("Enter your kaggle token: ")
+        os.environ["KAGGLE_USERNAME"] = user
+        os.environ["KAGGLE_KEY"] = token
+        import kaggle
+        kaggle.api.dataset_download_files(dataset, path=DIR, unzip=True, quiet=False)
+        os.environ.pop("KAGGLE_USERNAME")
+        os.environ.pop("KAGGLE_KEY")
 
     def __init__(
             self,
