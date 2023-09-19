@@ -92,8 +92,8 @@ def get_cycle_gan_trainer(
         loss_identity = (loss_identityA + loss_identityB) / 2
         # Perceptual Loss
         if perceptual_loss is not None:
-            loss_perceptualA = perceptual_loss(fakeA, realA)
-            loss_perceptualB = perceptual_loss(fakeB, realB)
+            loss_perceptualA = perceptual_loss(sameA, realA)
+            loss_perceptualB = perceptual_loss(sameA, realB)
             loss_perceptual = (loss_perceptualA + loss_perceptualB) / 2
         else:
             loss_perceptual = torch.tensor(0)
