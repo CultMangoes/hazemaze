@@ -49,7 +49,7 @@ class Config:
             T.Resize(self.image_shape[1:]),
             T.ToTensor(),
             T.Normalize(self.mean, self.std),
-            lambda x: x.to(self.device)
+            lambda x: x.to(self.device),
         ])
         self._denormalize = T.Normalize(-torch.tensor(self.mean) / torch.tensor(self.std), 1 / torch.tensor(self.std))
 

@@ -49,7 +49,7 @@ class Discriminator(nn.Module):
             *DConvBlock(blocks[-2], blocks[-1], nn.LeakyReLU(0.2),
                         norm=norm, kernel_size=4, stride=1, padding=1, n=n, p=p),
             *DConvBlock(blocks[-1], 1, nn.Sigmoid(),
-                        norm=norm, kernel_size=4, stride=1, padding=1, n=n, p=p)
+                        norm=0, kernel_size=4, stride=1, padding=1, n=n, p=p)
         )
         self.pred.__class__ = DConvBlock
 
