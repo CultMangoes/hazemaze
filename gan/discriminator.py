@@ -3,7 +3,7 @@ from typing import Literal
 from torch import nn
 
 
-class ConvBlock(nn.Sequential):
+class DConvBlock(nn.Sequential):
     NORM = [None, nn.BatchNorm2d, nn.InstanceNorm2d]
 
     def __init__(
@@ -31,30 +31,32 @@ class ConvBlock(nn.Sequential):
 
 
 class Discriminator(nn.Module):
-    @property
-    def kwargs(self):
-        return dict(norm=2, p=0, n=1, kernel_size=4, stride=2, padding=1)
-
-    def __init__(self, inp_features: int, blocks: list[int]):
+    def __init__(self, inp_features: int, blocks: list[int], **kwargs):
+        n = kwargs.pop("n", 1)
+        p = kwargs.pop("p", 0)
+        norm = kwargs.pop("norm", 2)
         super().__init__()
         assert len(blocks) > 2
 
-        self.head = ConvBlock(inp_features, blocks[0], nn.LeakyReLU(0.2),
-                              norm=0, kernel_size=4, stride=2, padding=1, p=0, n=1)
+        self.head = DConvBlock(inp_features, blocks[0], nn.LeakyReLU(0.2),
+                               norm=0, kernel_size=4, stride=2, padding=1, n=n, p=p)
         self.blocks = nn.Sequential(*[
-            ConvBlock(inp_features, out_features, nn.LeakyReLU(0.2), **self.kwargs)
+            DConvBlock(inp_features, out_features, nn.LeakyReLU(0.2),
+                       norm=norm, kernel_size=4, stride=2, padding=1, n=n, p=p)
             for inp_features, out_features in zip(blocks[:-2], blocks[1:-1])
         ])
         self.pred = nn.Sequential(
-            *ConvBlock(blocks[-2], blocks[-1], nn.LeakyReLU(0.2),
-                       norm=2, kernel_size=4, stride=1, padding=1, p=0, n=1),
-            *ConvBlock(blocks[-1], 1, nn.Sigmoid(),
-                       norm=0, kernel_size=4, stride=1, padding=1, p=0, n=1)
+            *DConvBlock(blocks[-2], blocks[-1], nn.LeakyReLU(0.2),
+                        norm=norm, kernel_size=4, stride=1, padding=1, n=n, p=p),
+            *DConvBlock(blocks[-1], 1, nn.Sigmoid(),
+                        norm=norm, kernel_size=4, stride=1, padding=1, n=n, p=p)
         )
-        self.pred.__class__ = ConvBlock
+        self.pred.__class__ = DConvBlock
 
     def forward(self, x):
-        return self.pred(self.blocks(self.head(x)))
+        x = self.head(x)
+        x = self.blocks(x)
+        return self.pred(x)
 
 
 def test_discriminator():
@@ -69,3 +71,9 @@ def test_discriminator():
 
 if __name__ == '__main__':
     test_discriminator()
+
+
+__all__ = [
+    "DConvBlock",
+    "Discriminator",
+]

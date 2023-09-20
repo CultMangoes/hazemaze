@@ -4,7 +4,7 @@ import torch
 from torch import nn
 
 
-class ConvBlock(nn.Sequential):
+class GConvBlock(nn.Sequential):
     NORM = [None, nn.BatchNorm2d, nn.InstanceNorm2d]
 
     def __init__(
@@ -36,8 +36,8 @@ class ConvBlock(nn.Sequential):
 class ResidualBlock(nn.Sequential):
     def __init__(self, channels: int, **kwargs):
         super().__init__(
-            *ConvBlock(channels, channels, nn.ReLU(), **kwargs),
-            *ConvBlock(channels, channels, **kwargs)
+            *GConvBlock(channels, channels, nn.ReLU(), **kwargs),
+            *GConvBlock(channels, channels, **kwargs)
         )
 
     def forward(self, x):
@@ -45,28 +45,33 @@ class ResidualBlock(nn.Sequential):
 
 
 class Generator(nn.Module):
-    def __init__(self, inp_features: int, features: int, residuals: int, **kwargs):
+    def __init__(self, inp_features: int, latent_dim: int, residuals: int, **kwargs):
         out_features = kwargs.pop("out_features", inp_features)
-        super().__init__()
+        n = kwargs.pop("n", 1)
+        p = kwargs.pop("p", 0)
+        norm = kwargs.pop("norm", 2)
         coder_len = kwargs.pop("coder_len", 2)
+        super().__init__()
 
-        self.head = ConvBlock(inp_features, features, nn.ReLU(),
-                              norm=2, kernel_size=7, stride=1, padding=3)
+        self.head = GConvBlock(inp_features, latent_dim, nn.ReLU(),
+                               norm=norm, kernel_size=7, stride=1, padding=3, n=n, p=p)
         self.down_blocks = nn.ModuleList([
-            ConvBlock(features * 2 ** i, features * 2 ** (i + 1), nn.ReLU(),
-                      norm=2, kernel_size=3, stride=2, padding=1) for i in range(coder_len)
+            GConvBlock(latent_dim * 2 ** i, latent_dim * 2 ** (i + 1), nn.ReLU(),
+                       norm=norm, kernel_size=3, stride=2, padding=1, n=n, p=p)
+            for i in range(coder_len)
         ])
         self.residual_blocks = nn.Sequential(
-            *[ResidualBlock(features * 4,
-                            norm=2, kernel_size=3, stride=1, padding=1) for _ in range(residuals)]
+            *[ResidualBlock(latent_dim * 4,
+                            norm=norm, kernel_size=3, stride=1, padding=1, n=n, p=p)
+              for _ in range(residuals)]
         )
         self.up_blocks = nn.ModuleList(reversed([
-            ConvBlock(features * 2 ** (i + 1) * 2, features * 2 ** i, nn.ReLU(),
-                      norm=2, down=False, kernel_size=3, stride=2, padding=1, output_padding=1)
+            GConvBlock(latent_dim * 2 ** (i + 1) * 2, latent_dim * 2 ** i, nn.ReLU(),
+                       norm=norm, down=False, kernel_size=3, stride=2, padding=1, output_padding=1, n=n, p=p)
             for i in range(coder_len)
         ]))
-        self.tail = ConvBlock(features, out_features, nn.Tanh(),
-                              norm=0, kernel_size=7, stride=1, padding=3)
+        self.pred = GConvBlock(latent_dim, out_features, nn.Tanh(),
+                               norm=0, kernel_size=7, stride=1, padding=3, n=n, p=p)
 
     def forward(self, x):
         x = self.head(x)
@@ -76,9 +81,9 @@ class Generator(nn.Module):
             skip_connections.append(x)
         x = self.residual_blocks(x)
         for skip_connection, up_block in zip(reversed(skip_connections), self.up_blocks):
-            x = up_block(torch.cat([x, skip_connection], dim=1))
-        x = self.tail(x)
-        return x
+            x = torch.cat([x, skip_connection], dim=1)
+            x = up_block(x)
+        return self.pred(x)
 
 
 def test_generator():
@@ -93,3 +98,10 @@ def test_generator():
 
 if __name__ == '__main__':
     test_generator()
+
+
+__all__ = [
+    "GConvBlock",
+    "ResidualBlock",
+    "Generator",
+]
