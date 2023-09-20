@@ -1,7 +1,7 @@
 import os
 import random
 from pathlib import Path
-from typing import Union
+from typing import Union, Generator
 from abc import ABCMeta, abstractmethod
 
 import torch
@@ -10,12 +10,13 @@ from PIL import Image
 
 
 class ImageDataset(Dataset, metaclass=ABCMeta):
+    SETS = None,
+
     @abstractmethod
-    def get_data(self) -> tuple[str]:
+    def get_data(self) -> Generator[dict[str, ...], None, None]:
         raise NotImplementedError
 
     @classmethod
-    @abstractmethod
     def download(cls, DIR: Union[str, "Path"]):
         raise NotImplementedError("This dataset does not support download")
 
@@ -30,15 +31,23 @@ class ImageDataset(Dataset, metaclass=ABCMeta):
         os.environ.pop("KAGGLE_USERNAME")
         os.environ.pop("KAGGLE_KEY")
 
+    @property
+    def DIR(self) -> "Path":
+        return self._DIR
+
+    @property
+    def SET(self) -> str:
+        return self._SET
+
     def __init__(
             self,
             DIR: Union[str, "Path"],
-            img_transform=None,
+            SET: str = None,
             **kwargs
     ):
-        device = kwargs.pop("device", torch.device("cpu"))
         download = kwargs.pop("download", False)
         sub_sample = kwargs.pop("sub_sample", 1)
+        transforms = {k.removesuffix("_transform"): v for k, v in kwargs.items() if k.endswith("_transform")}
         if os.path.isdir(DIR) and len(os.listdir(DIR)): download = False
         if download:
             os.makedirs(DIR, exist_ok=True)
@@ -47,10 +56,12 @@ class ImageDataset(Dataset, metaclass=ABCMeta):
             f"Directory {DIR} does not exist"
         assert 0 < sub_sample <= 1, \
             f"Value of sub_sample must be between 0 and 1, got {sub_sample}"
+        assert SET in self.SETS, \
+            f"invalid value of SET, must be one of {self.SETS}, got {SET}"
 
         self._DIR = Path(DIR)
-        self._img_transform = img_transform
-        self._device = device
+        self._SET = SET
+        self._T = transforms
 
         data = list(self.get_data())
         random.shuffle(data)
@@ -68,42 +79,54 @@ class ImageDataset(Dataset, metaclass=ABCMeta):
         if isinstance(item, slice):
             return self.collate_fn(self[idx] for idx in range(*item.indices(len(self))))
         elif isinstance(item, int):
-            file = self._data[item % len(self)]
-            img = Image.open(file)
-            if self._img_transform is not None: img = self._img_transform(img)
+            data_item = dict(self._data[item % len(self)])
+            file = data_item.pop("file")
+            data_item["image"] = Image.open(file)
             return {
-                "images": img.to(self._device)
+                k: self._T.get(k, lambda x: x)(v) for k, v in data_item.items()
             }
         else:
             raise TypeError(f"Invalid argument type {type(item)}")
 
     @staticmethod
     def collate_fn(batch) -> dict[str, "torch.Tensor"]:
+        batch = tuple(batch)
+        keys = batch[0].keys()
+        batch = tuple(zip(*[b.values() for b in batch]))
         return {
-            "images": torch.stack([b["images"] for b in batch], dim=0)
+            k: torch.stack(batch[i]) for i, k in enumerate(keys)
         }
 
-    def to(self, device):
-        self._device = device
-        return self
+
+def test_ImageDataset():
+    import torchvision.transforms as T
+
+    class TestImageDataset(ImageDataset):
+        def get_data(self) -> Generator[dict[str, ...], None, None]:
+            for i in range(100): yield {
+                "file": "./img.png",
+                "label": 0,
+            }
+
+    ds1 = TestImageDataset("./", image_transform=T.ToTensor(), label_transform=lambda x: torch.tensor(x))
+    for k, v in ds1[:9].items(): print(k, v.shape, sep=": ")
 
 
 class DomainDataset(Dataset):
-    def __init__(self, *domains: "ImageDataset", device=None):
+    def __init__(self, *domains: "ImageDataset"):
         self._domains = domains
-        self.to(device)
 
     def __len__(self):
         return max(len(d) for d in self._domains)
 
     def __getitem__(self, item):
         return {
-            f"images_{i}": d[item]["images"] for i, d in enumerate(self._domains)
+            f"domain_{i}": d[item] for i, d in enumerate(self._domains)
         }
 
-    def to(self, device):
-        for d in self._domains: d.to(device)
-        return self
+
+if __name__ == '__main__':
+    test_ImageDataset()
 
 
 __all__ = [
