@@ -1,12 +1,9 @@
 import torch
 from torch import nn, optim
-from torch.utils.data import DataLoader, Dataset
 from torch.utils.tensorboard import SummaryWriter
 from torchvision.utils import make_grid
-from tqdm.auto import tqdm
-from tqdm import tqdm as TQDM
 
-BAR_FORMAT = "{desc} {n_fmt}/{total_fmt}|{bar}|{percentage:3.0f}% [{elapsed}<{remaining}, {rate_fmt}{postfix}]"
+from utils.checkpoints import save_checkpoint
 
 
 class PerceptualLoss:
@@ -19,42 +16,26 @@ class PerceptualLoss:
         return self.criterion(self.model(x), self.model(y))
 
 
-def train(
-        trainer,
-        ds: "Dataset",
-        ne: int = 10, bs: int = 32,
-        collate_fn=None
-):
-    dl = DataLoader(ds, batch_size=bs, shuffle=True, collate_fn=collate_fn)
-    for epoch in range(ne):
-        loss_sum = 0
-        prog: "TQDM" = tqdm(dl, desc=f"Epoch: 0/{ne} | Batch", postfix={"loss": "?"}, bar_format=BAR_FORMAT)
-        for batch, DATA in enumerate(prog):
-            loss = trainer(DATA, epoch * len(dl) + batch)
-            loss_sum += loss.item()
-            prog.set_description(f"Epoch: {epoch + 1}/{ne} | Batch")
-            prog.set_postfix(loss=f"{loss_sum / (batch + 1):.4f}")
-
-
 def get_cycle_gan_trainer(
         generatorA: "nn.Module", generatorB: "nn.Module",
         discriminatorA: "nn.Module", discriminatorB: "nn.Module",
         optimizerG: "optim.Optimizer", optimizerD: "optim.Optimizer",
+        save_path: str,
         perceptual_loss=None, lambda_cycle: float = 10, lambda_identity: float = 0.5,
-        writer: "SummaryWriter" = None, period: int = 1,
+        writer: "SummaryWriter" = False, period: int = 100,
         fixedA: "torch.Tensor" = None, fixedB: "torch.Tensor" = None,
 ):
     assert writer is None or (fixedA is not None and fixedB is not None), \
         "parameters `writer`, `fixedA` and `fixedB` are mutually inclusive"
     L1 = nn.L1Loss()
     MSE = nn.MSELoss()
-    if writer is not None:
+    if writer:
         grid_realA = make_grid(fixedA, nrow=1, normalize=True)
         grid_realB = make_grid(fixedB, nrow=1, normalize=True)
         # writer.add_graph(..., ...)
 
     def trainer(DATA, step):
-        realA, realB = DATA["images_0"], DATA["images_1"]
+        realA, realB = DATA["domain_0"]["image"], DATA["domain_1"]["image"]
         fakeA, fakeB = generatorA(realB), generatorB(realA)
         backA, backB = generatorA(fakeB), generatorB(fakeA)
         sameA, sameB = generatorA(realA), generatorB(realB)
@@ -125,6 +106,22 @@ def get_cycle_gan_trainer(
                 writer.add_images("images/domainB",
                                   torch.stack([grid_realB, grid_fakeA, grid_backB, grid_sameB]), step)
 
+            save_checkpoint(
+                save_path,
+                {
+                    "generatorA": generatorA,
+                    "generatorB": generatorB,
+                    "discriminatorA": discriminatorA,
+                    "discriminatorB": discriminatorB,
+                },
+                {
+                    "optimizerG": optimizerG,
+                    "optimizerD": optimizerD,
+                },
+                step=step,
+                loss=loss_total.item(),
+            )
+
         return loss_total
 
     return trainer
@@ -132,6 +129,5 @@ def get_cycle_gan_trainer(
 
 __all__ = [
     "PerceptualLoss",
-    "train",
     "get_cycle_gan_trainer"
 ]
