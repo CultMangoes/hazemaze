@@ -2,11 +2,12 @@ import os
 import sys
 import time
 
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
 import torch
 import torchvision.transforms as T
 from torchvision.utils import make_grid
+from torchvision.io import read_video
+
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from gan import CycleGANConfig, Generator
 from utils.checkpoints import load_checkpoint
@@ -44,7 +45,7 @@ generatorB = Generator(
     coder_len=config1.coder_len,
 ).to(config1.device).eval()
 
-others = load_checkpoint(
+load_checkpoint(
     "models/hazemaze/v1/checkpoint-2023-09-21 13_56_12.898988.pt",
     {"generatorA": generatorA, "generatorB": generatorB},
 )
@@ -63,9 +64,15 @@ def image_dehazer(image: "Image", w=640):
         return grid, t
 
 
-def video_dehazer(video: list["Image"]):
-    tt = 0
-    for i, image in enumerate(video):
-        video[i], t = image_dehazer(image, w=360)
-        tt += t
-    return video, tt
+def video_dehazer(video_file: str, w=360):
+    with torch.inference_mode():
+        video = read_video(video_file)[0].permute(0, 3, 1, 2)
+        video = video / video.max()
+        asp = video.shape[2] / video.shape[3]
+        video = T.Resize((w // 4 * 4, int(asp * w) // 4 * 4))(video)
+        video = T.Normalize(config1.mean, config1.std)(video)
+        for image in video:
+            dehazed_image = generatorB(image.unsqueeze(0).to(config1.device))
+            grid_arr = make_grid(torch.stack([image, dehazed_image[0]]), nrow=2, normalize=True).cpu()
+            grid = T.ToPILImage()(grid_arr)
+            yield grid

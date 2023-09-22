@@ -1,9 +1,13 @@
+from typing import TYPE_CHECKING
+
 import torch
 from torch import nn, optim
-from torch.utils.tensorboard import SummaryWriter
 from torchvision.utils import make_grid
 
 from utils.checkpoints import save_checkpoint
+
+if TYPE_CHECKING:
+    from torch.utils.tensorboard import SummaryWriter
 
 
 class PerceptualLoss:
