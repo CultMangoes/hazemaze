@@ -44,7 +44,7 @@ with tab2:
         if uploaded_file_video is not None:
             with open("temp.mp4", "wb") as f:
                 f.write(uploaded_file_video.read())
-            stream = video_dehazer("temp.mp4")
+            stream = video_dehazer("temp.mp4", w=100)
             widget = st.image([])
             for frame in stream:
                 widget.image(frame, use_column_width=True)

@@ -66,10 +66,11 @@ def image_dehazer(image: "Image", w=640):
 
 def video_dehazer(video_file: str, w=360):
     with torch.inference_mode():
-        video = read_video(video_file)[0].permute(0, 3, 1, 2)
+        video = read_video(video_file, start_pts=0, end_pts=10, pts_unit="sec")[0].permute(0, 3, 1, 2)
         video = video / video.max()
         asp = video.shape[2] / video.shape[3]
-        video = T.Resize((w // 4 * 4, int(asp * w) // 4 * 4))(video)
+        w = min(w, video.shape[3])
+        video = T.Resize((int(asp * w) // 4 * 4, w // 4 * 4))(video)
         video = T.Normalize(config1.mean, config1.std)(video)
         for image in video:
             dehazed_image = generatorB(image.unsqueeze(0).to(config1.device))
