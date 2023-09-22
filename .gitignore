@@ -157,3 +157,4 @@ cython_debug/
 datasets/
 logs/
 models/
+demo/.streamlit/secrets.toml

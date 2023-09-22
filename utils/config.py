@@ -5,8 +5,6 @@ from typing import Union
 import torch
 import torchvision.transforms as T
 
-from torch.utils.tensorboard import SummaryWriter
-
 
 @dataclass
 class Config:
@@ -42,7 +40,9 @@ class Config:
 
     def __post_init__(self):
         os.makedirs(self.checkpoint_path, exist_ok=True)
-        if self.writer: self.writer = SummaryWriter(self.log_path)
+        if self.writer:
+            from torch.utils.tensorboard import SummaryWriter
+            self.writer = SummaryWriter(self.log_path)
         if not self.mean: self.mean = (0.5,) * self.image_shape[0]
         if not self.std: self.std = (0.5,) * self.image_shape[0]
         if not self.transforms: self.transforms = T.Compose([

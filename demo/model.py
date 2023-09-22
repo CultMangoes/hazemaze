@@ -1,3 +1,9 @@
+import os
+import sys
+import time
+
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 import torch
 import torchvision.transforms as T
 from torchvision.utils import make_grid
@@ -28,28 +34,31 @@ generatorA = Generator(
     config1.residuals,
     p=config1.dropout,
     coder_len=config1.coder_len,
-).to(config1.device)
+).to(config1.device).eval()
+
 generatorB = Generator(
     config1.image_shape[0],
     config1.latent_dim,
     config1.residuals,
     p=config1.dropout,
     coder_len=config1.coder_len,
-).to(config1.device)
+).to(config1.device).eval()
 
-file_path = "models/hazemaze/v1/checkpoint-2023-09-21 13_56_12.898988.pt"
 others = load_checkpoint(
-    file_path,
+    "models/hazemaze/v1/checkpoint-2023-09-21 13_56_12.898988.pt",
     {"generatorA": generatorA, "generatorB": generatorB},
 )
-step = others["step"]
 
-image_path = "demo/img_2.png"
-if __name__ == '__main__':
-    hazy = Image.open(image_path)
-    hazy = hazy.resize((hazy.size[0] // 4 * 4, hazy.size[1] // 4 * 4))
-    hazy_arr = generatorA(T.Normalize(config1.mean, config1.std)(T.ToTensor()(hazy).unsqueeze(0)))
-    dehazed_arr = generatorB(hazy_arr.to(config1.device)).cpu()
-    grid_arr = make_grid(torch.cat([hazy_arr, dehazed_arr]), nrow=2, normalize=True)
-    grid = T.ToPILImage()(grid_arr)
-    grid.show()
+
+def dehazer(image: "Image"):
+    with torch.inference_mode():
+        w = 640
+        asp = image.size[1] / image.size[0]
+        image = image.resize((w // 4 * 4, int(asp * w) // 4 * 4))
+        image_arr = T.Normalize(config1.mean, config1.std)(T.ToTensor()(image).unsqueeze(0))
+        t = time.time()
+        dehazed_arr = generatorB(image_arr.to(config1.device)).cpu()
+        t = time.time() - t
+        grid_arr = make_grid(torch.cat([image_arr, dehazed_arr]), nrow=2, normalize=True)
+        grid = T.ToPILImage()(grid_arr)
+        return grid, t
