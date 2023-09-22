@@ -50,9 +50,8 @@ others = load_checkpoint(
 )
 
 
-def dehazer(image: "Image"):
+def image_dehazer(image: "Image", w=640):
     with torch.inference_mode():
-        w = 640
         asp = image.size[1] / image.size[0]
         image = image.resize((w // 4 * 4, int(asp * w) // 4 * 4))
         image_arr = T.Normalize(config1.mean, config1.std)(T.ToTensor()(image).unsqueeze(0))
@@ -62,3 +61,11 @@ def dehazer(image: "Image"):
         grid_arr = make_grid(torch.cat([image_arr, dehazed_arr]), nrow=2, normalize=True)
         grid = T.ToPILImage()(grid_arr)
         return grid, t
+
+
+def video_dehazer(video: list["Image"]):
+    tt = 0
+    for i, image in enumerate(video):
+        video[i], t = image_dehazer(image, w=360)
+        tt += t
+    return video, tt
