@@ -21,9 +21,10 @@ def get_dehazers():
 
 
 image_dehazer, video_dehazer = get_dehazers()
-tab1, tab2 = st.tabs(["Image  Upload", "Video Upload"])
 
-with tab1:
+input_type = st.radio("Select the type of input", ("Image", "Video"), horizontal=True)
+
+if input_type == "Image":
     st.header("Upload Images")
     uploaded_file_image = st.file_uploader("Choose an image file", type=["png", "jpg", "jpeg"],
                                            accept_multiple_files=True)
@@ -36,8 +37,7 @@ with tab1:
         else:
             st.error("Please upload image files")
 
-
-with tab2:
+if input_type == "Video":
     st.header("Upload Video")
     uploaded_file_video = st.file_uploader("Choose a video file", type=["mp4"], accept_multiple_files=False)
     if st.button("Dehaze it!", key="video"):
